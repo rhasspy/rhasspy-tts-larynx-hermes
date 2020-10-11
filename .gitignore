@@ -1,11 +1,11 @@
 __pycache__/
 .mypy_cache/
-.venv/
-dist/
+/.venv/
+/dist/
 *.egg-info/
-pyinstaller/
+/pyinstaller/
 .vscode/
-download/
+/download/
 .coverage
 coverage.xml
-larynx/
+/larynx/
