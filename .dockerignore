@@ -1,0 +1,6 @@
+*
+!pyinstaller/dist
+!debian/bin
+!requirements.txt
+!rhasspytts_larynx_hermes/*.py
+!etc/
