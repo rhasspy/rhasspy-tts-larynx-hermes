@@ -162,7 +162,8 @@ class TtsHermesMqtt(HermesClient):
         """Publish list of available voices."""
         voices: typing.List[Voice] = []
         try:
-            voices.append(Voice(voice_id="default"))
+            for voice in self.synthesizers:
+                voices.append(Voice(voice_id=voice))
         except Exception as e:
             _LOGGER.exception("handle_get_voices")
             yield TtsError(
