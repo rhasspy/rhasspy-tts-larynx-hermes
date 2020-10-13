@@ -126,12 +126,17 @@ def main():
     # Create synthesizer
     synthesizers = {}
     for voice, voice_args in voices.items():
-        _LOGGER.debug("Creating Larynx synthesizer (%s)", voice)
+        _LOGGER.debug("Creating Larynx synthesizer (%s)...", voice)
 
-        synthesizer = synthesize.Synthesizer(**voice_args)
+        try:
+            synthesizer = synthesize.Synthesizer(**voice_args)
 
-        synthesizer.load()
-        synthesizers[voice] = synthesizer
+            synthesizer.load()
+            synthesizers[voice] = synthesizer
+
+            _LOGGER.info("Created synthesizer for %s", voice)
+        except Exception:
+            _LOGGER.exception("Failed to create synthesizer for %s", voice)
 
     # Listen for messages
     client = mqtt.Client()
