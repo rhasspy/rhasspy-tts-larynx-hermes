@@ -8,4 +8,4 @@ __pycache__/
 /download/
 .coverage
 coverage.xml
-/larynx/
+/larynx
