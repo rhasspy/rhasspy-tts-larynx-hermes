@@ -1,5 +1,6 @@
 """Hermes MQTT server for Rhasspy TTS using Larynx"""
 import asyncio
+import audioop
 import hashlib
 import io
 import logging
@@ -10,12 +11,11 @@ import wave
 from pathlib import Path
 from uuid import uuid4
 
+import larynx.larynx.synthesize as synthesize
 from rhasspyhermes.audioserver import AudioPlayBytes, AudioPlayError, AudioPlayFinished
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.tts import GetVoices, TtsError, TtsSay, TtsSayFinished, Voice, Voices
-
-import larynx.larynx.synthesize as synthesize
 
 _LOGGER = logging.getLogger("rhasspytts_larynx_hermes")
 
@@ -32,6 +32,7 @@ class TtsHermesMqtt(HermesClient):
         default_voice: str,
         cache_dir: typing.Optional[Path] = None,
         play_command: typing.Optional[str] = None,
+        volume: typing.Optional[float] = None,
         site_ids: typing.Optional[typing.List[str]] = None,
     ):
         super().__init__("rhasspytts_larynx_hermes", client, site_ids=site_ids)
@@ -42,6 +43,7 @@ class TtsHermesMqtt(HermesClient):
         self.default_voice = default_voice
         self.cache_dir = cache_dir
         self.play_command = play_command
+        self.volume = volume
 
         self.play_finished_events: typing.Dict[typing.Optional[str], asyncio.Event] = {}
 
@@ -95,6 +97,16 @@ class TtsHermesMqtt(HermesClient):
             assert wav_bytes, "No WAV data synthesized"
             _LOGGER.debug("Got %s byte(s) of WAV data", len(wav_bytes))
 
+            # Adjust volume
+            volume = self.volume
+            if say.volume is not None:
+                # Override with message volume
+                volume = say.volume
+
+            original_wav_bytes = wav_bytes
+            if volume is not None:
+                wav_bytes = TtsHermesMqtt.change_volume(wav_bytes, volume)
+
             finished_event = asyncio.Event()
 
             # Play WAV
@@ -129,7 +141,7 @@ class TtsHermesMqtt(HermesClient):
             # Save to cache
             if (not from_cache) and cached_wav_path:
                 with open(cached_wav_path, "wb") as cached_wav_file:
-                    cached_wav_file.write(wav_bytes)
+                    cached_wav_file.write(original_wav_bytes)
 
             try:
                 # Wait for audio to finished playing or timeout
@@ -221,3 +233,41 @@ class TtsHermesMqtt(HermesClient):
                 guess_frames = (len(wav_bytes) - 44) / width
 
                 return guess_frames / float(rate)
+
+    @staticmethod
+    def change_volume(wav_bytes: bytes, volume: float) -> bytes:
+        """Scale WAV amplitude by factor (0-1)"""
+        if volume == 1.0:
+            return wav_bytes
+
+        try:
+            with io.BytesIO(wav_bytes) as wav_in_io:
+                # Re-write WAV with adjusted volume
+                with io.BytesIO() as wav_out_io:
+                    wav_out_file: wave.Wave_write = wave.open(wav_out_io, "wb")
+                    wav_in_file: wave.Wave_read = wave.open(wav_in_io, "rb")
+
+                    with wav_out_file:
+                        with wav_in_file:
+                            sample_width = wav_in_file.getsampwidth()
+
+                            # Copy WAV details
+                            wav_out_file.setframerate(wav_in_file.getframerate())
+                            wav_out_file.setsampwidth(sample_width)
+                            wav_out_file.setnchannels(wav_in_file.getnchannels())
+
+                            # Adjust amplitude
+                            wav_out_file.writeframes(
+                                audioop.mul(
+                                    wav_in_file.readframes(wav_in_file.getnframes()),
+                                    sample_width,
+                                    volume,
+                                )
+                            )
+
+                    wav_bytes = wav_out_io.getvalue()
+
+        except Exception:
+            _LOGGER.exception("change_volume")
+
+        return wav_bytes

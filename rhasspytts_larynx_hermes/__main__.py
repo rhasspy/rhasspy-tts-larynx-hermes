@@ -5,9 +5,9 @@ import logging
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
-import rhasspyhermes.cli as hermes_cli
 
 import larynx.larynx.synthesize as synthesize
+import rhasspyhermes.cli as hermes_cli
 
 from . import TtsHermesMqtt
 
@@ -54,6 +54,9 @@ def main():
     )
     parser.add_argument(
         "--default-voice", default="default", help="Name of default voice to use"
+    )
+    parser.add_argument(
+        "--volume", type=float, help="Volume scale for output audio (0-1, default: 1)"
     )
 
     hermes_cli.add_hermes_args(parser)
@@ -146,6 +149,7 @@ def main():
         default_voice=args.default_voice,
         cache_dir=args.cache_dir,
         play_command=args.play_command,
+        volume=args.volume,
         site_ids=args.site_id,
     )
 
