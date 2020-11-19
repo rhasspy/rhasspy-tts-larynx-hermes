@@ -24,13 +24,13 @@ function maybe_download {
     fi
 }
 
-larynx_file="${download}/larynx-0.1.0.tar.gz"
-larynx_url='https://github.com/rhasspy/larynx/archive/v0.1.0.tar.gz'
+larynx_file="${download}/larynx-0.2.0.tar.gz"
+larynx_url='https://github.com/rhasspy/larynx/archive/v0.2.0.tar.gz'
 
 maybe_download "${larynx_url}" "${larynx_file}"
 
-tts_file="${download}/TTS-0.1.0.tar.gz"
-tts_url='https://github.com/rhasspy/TTS/archive/v0.1.0.tar.gz'
+tts_file="${download}/TTS-0.2.0.tar.gz"
+tts_url='https://github.com/rhasspy/TTS/archive/v0.2.0.tar.gz'
 
 maybe_download "${tts_url}" "${tts_file}"
 
