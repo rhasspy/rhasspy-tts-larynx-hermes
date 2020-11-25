@@ -215,7 +215,7 @@ class TtsHermesMqtt(HermesClient):
     def get_sentence_hash(voice: str, sentence: str):
         """Get hash for cache."""
         m = hashlib.md5()
-        m.update(f"{voice}_sentence".encode())
+        m.update(f"{voice}_{sentence}".encode())
 
         return m
 
