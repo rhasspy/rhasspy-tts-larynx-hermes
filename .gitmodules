@@ -1,0 +1,3 @@
+[submodule "larynx"]
+	path = larynx
+	url = https://github.com/rhasspy/larynx.git
