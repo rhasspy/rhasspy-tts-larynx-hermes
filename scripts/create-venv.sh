@@ -13,12 +13,6 @@ src_dir="$(realpath "${this_dir}/..")"
 
 venv="${src_dir}/.venv"
 download="${src_dir}/download"
-larynx_dir="${src_dir}/larynx"
-
-if [[ ! -d "${larynx_dir}/TTS/TTS" ]]; then
-    echo "Larynx not found. Try running 'git submodule update --init --recursive'"
-    exit 1
-fi
 
 # -----------------------------------------------------------------------------
 
@@ -40,26 +34,6 @@ grep '^rhasspy-' "${src_dir}/requirements.txt" | \
     xargs pip3 ${PIP_INSTALL} -f "${download}"
 
 pip3 ${PIP_INSTALL} -r requirements.txt
-
-# Install Larynx
-echo 'Installing Larynx'
-
-# Turn it into a fake Python module
-touch "${larynx_dir}/__init__.py"
-
-# Add MozillaTTS fork as a submodule
-tts_dir="${larynx_dir}/TTS"
-
-# Install MozillaTTS fork dependencies
-pushd "${tts_dir}"
-pip3 install -r requirements.txt
-python3 setup.py develop
-popd
-
-# Install Larynx dependencies
-pushd "${larynx_dir}"
-pip3 install -r requirements.txt
-popd
 
 # Optional development requirements
 pip3 ${PIP_INSTALL} -r requirements_dev.txt || \

@@ -8,10 +8,19 @@ import shlex
 import subprocess
 import typing
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-import larynx.larynx.synthesize as synthesize
+import gruut
+from larynx_runtime import (
+    TextToSpeechModel,
+    VocoderModel,
+    load_tts_model,
+    load_vocoder_model,
+    text_to_speech,
+)
+from larynx_runtime.wavfile import write as wav_write
 from rhasspyhermes.audioserver import AudioPlayBytes, AudioPlayError, AudioPlayFinished
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
@@ -22,28 +31,57 @@ _LOGGER = logging.getLogger("rhasspytts_larynx_hermes")
 # -----------------------------------------------------------------------------
 
 
+@dataclass
+class VoiceInfo:
+    """Description of a single voice"""
+
+    name: str
+    language: str
+    tts_model_type: str
+    tts_model_path: Path
+    vocoder_model_type: str
+    vocoder_model_path: Path
+    tts_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
+    vocoder_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
+    sample_rate: int = 22050
+
+
+# -----------------------------------------------------------------------------
+
+
 class TtsHermesMqtt(HermesClient):
     """Hermes MQTT server for Rhasspy TTS using Larynx."""
 
     def __init__(
         self,
         client,
-        synthesizers: typing.Dict[str, synthesize.Synthesizer],
+        voices: typing.Dict[str, VoiceInfo],
         default_voice: str,
         cache_dir: typing.Optional[Path] = None,
         play_command: typing.Optional[str] = None,
         volume: typing.Optional[float] = None,
+        denoiser_strength: float = 0.0,
         site_ids: typing.Optional[typing.List[str]] = None,
     ):
         super().__init__("rhasspytts_larynx_hermes", client, site_ids=site_ids)
 
         self.subscribe(TtsSay, GetVoices, AudioPlayFinished)
 
-        self.synthesizers = synthesizers
+        self.voices = voices
         self.default_voice = default_voice
         self.cache_dir = cache_dir
         self.play_command = play_command
         self.volume = volume
+        self.denoiser_strength = denoiser_strength
+
+        # locale -> gruut Language
+        self.gruut_langs: typing.Dict[str, gruut.Language] = {}
+
+        # path -> TTS model
+        self.tts_models: typing.Dict[str, TextToSpeechModel] = {}
+
+        # path -> vocoder model
+        self.vocoder_models: typing.Dict[str, VocoderModel] = {}
 
         self.play_finished_events: typing.Dict[typing.Optional[str], asyncio.Event] = {}
 
@@ -71,16 +109,18 @@ class TtsHermesMqtt(HermesClient):
 
         try:
             # Try to pull WAV from cache first
-            voice = say.lang or self.default_voice
-            synthesizer = self.synthesizers.get(voice)
-            assert synthesizer, f"No voice named '{voice}'"
+            voice_name = say.lang or self.default_voice
+            voice = self.voices.get(voice_name)
+            assert voice is not None, f"No voice named {voice_name}"
 
-            sentence_hash = TtsHermesMqtt.get_sentence_hash(voice, say.text)
+            # Check cache
+            sentence_hash = TtsHermesMqtt.get_sentence_hash(voice_name, say.text)
             wav_bytes = None
             from_cache = False
             cached_wav_path = None
 
             if self.cache_dir:
+                # Load from cache
                 cached_wav_path = self.cache_dir / f"{sentence_hash.hexdigest()}.wav"
 
                 if cached_wav_path.is_file():
@@ -91,11 +131,11 @@ class TtsHermesMqtt(HermesClient):
 
             if not wav_bytes:
                 # Run text to speech
-                _LOGGER.debug("Synthesizing '%s' (voice=%s)", say.text, voice)
-                wav_bytes = synthesizer.synthesize(say.text)
+                _LOGGER.debug("Synthesizing '%s' (voice=%s)", say.text, voice_name)
+                wav_bytes = self.synthesize(voice, say.text)
 
-            assert wav_bytes, "No WAV data synthesized"
-            _LOGGER.debug("Got %s byte(s) of WAV data", len(wav_bytes))
+                assert wav_bytes, "No WAV data synthesized"
+                _LOGGER.debug("Got %s byte(s) of WAV data", len(wav_bytes))
 
             # Adjust volume
             volume = self.volume
@@ -174,7 +214,7 @@ class TtsHermesMqtt(HermesClient):
         """Publish list of available voices."""
         voices: typing.List[Voice] = []
         try:
-            for voice in self.synthesizers:
+            for voice in self.voices:
                 voices.append(Voice(voice_id=voice))
         except Exception as e:
             _LOGGER.exception("handle_get_voices")
@@ -269,5 +309,60 @@ class TtsHermesMqtt(HermesClient):
 
         except Exception:
             _LOGGER.exception("change_volume")
+
+        return wav_bytes
+
+    # -------------------------------------------------------------------------
+
+    def synthesize(self, voice: VoiceInfo, text: str) -> bytes:
+        """Synthesize text using a given voice"""
+        # Load language
+        gruut_lang = self.gruut_langs.get(voice.language)
+        if gruut_lang is None:
+            gruut_lang = gruut.Language.load(voice.language)
+            assert gruut_lang is not None
+            self.gruut_langs[voice.language] = gruut_lang
+
+        # Load TTS model
+        tts_key = str(voice.tts_model_path)
+        tts_model = self.tts_models.get(tts_key)
+        if tts_model is None:
+            tts_model = load_tts_model(
+                model_type=voice.tts_model_type, model_path=voice.tts_model_path
+            )
+            self.tts_models[tts_key] = tts_model
+
+        assert tts_model is not None
+
+        # Load vocoder model
+        vocoder_key = str(voice.vocoder_model_path)
+        vocoder_model = self.vocoder_models.get(vocoder_key)
+        if vocoder_model is None:
+            vocoder_model = load_vocoder_model(
+                model_type=voice.vocoder_model_type, model_path=voice.vocoder_model_path
+            )
+            self.vocoder_models[vocoder_key] = vocoder_model
+
+        assert vocoder_model is not None
+
+        results = list(
+            text_to_speech(
+                text=text,
+                gruut_lang=gruut_lang,
+                tts_model=tts_model,
+                vocoder_model=vocoder_model,
+                tts_settings=voice.tts_settings,
+                vocoder_settings=voice.vocoder_settings,
+            )
+        )
+        assert results, "No TTS result"
+
+        # Assume all sentences are combined into a single audio segment
+        _, audio = results[0]
+
+        # Convert to WAV audio
+        with io.BytesIO() as wav_io:
+            wav_write(wav_io, voice.sample_rate, audio)
+            wav_bytes = wav_io.getvalue()
 
         return wav_bytes

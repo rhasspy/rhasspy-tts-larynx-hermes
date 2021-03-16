@@ -6,10 +6,9 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-import larynx.larynx.synthesize as synthesize
 import rhasspyhermes.cli as hermes_cli
 
-from . import TtsHermesMqtt
+from . import TtsHermesMqtt, VoiceInfo
 
 _LOGGER = logging.getLogger("rhasspytts_larynx_hermes")
 
@@ -20,32 +19,19 @@ def main():
     """Main method."""
     parser = argparse.ArgumentParser(prog="rhasspy-tts-larynx-hermes")
     parser.add_argument(
-        "--model",
+        "--voice",
         required=True,
-        nargs="+",
+        nargs=6,
         action="append",
-        help="Path to TTS model checkpoint (.pth.tar)",
-    )
-    parser.add_argument(
-        "--config",
-        nargs="+",
-        action="append",
-        default=[],
-        help="Path to TTS model JSON configuration file",
-    )
-    parser.add_argument(
-        "--vocoder-model",
-        nargs="+",
-        action="append",
-        default=[],
-        help="Path to vocoder model checkpoint (.pth.tar)",
-    )
-    parser.add_argument(
-        "--vocoder-config",
-        nargs="+",
-        action="append",
-        default=[],
-        help="Path to vocoder model JSON configuration file",
+        metavar=(
+            "voice_name",
+            "language",
+            "tts_type",
+            "tts_path",
+            "vocoder_type",
+            "vocoder_path",
+        ),
+        help="Load voice from TTS/vocoder model",
     )
     parser.add_argument("--cache-dir", help="Directory to cache WAV files")
     parser.add_argument(
@@ -59,12 +45,28 @@ def main():
         "--volume", type=float, help="Volume scale for output audio (0-1, default: 1)"
     )
 
+    parser.add_argument(
+        "--tts-setting",
+        nargs=3,
+        action="append",
+        default=[],
+        metavar=("voice_name", "key", "value"),
+        help="Pass key/value setting to TTS (e.g., length_scale for GlowTTS)",
+    )
+    parser.add_argument(
+        "--vocoder-setting",
+        nargs=3,
+        action="append",
+        default=[],
+        metavar=("voice_name", "key", "value"),
+        help="Pass key/value setting to vocoder (e.g., denoiser_strength)",
+    )
+
     hermes_cli.add_hermes_args(parser)
     args = parser.parse_args()
 
     hermes_cli.setup_logging(args)
 
-    # Something in MozillaTTS is changing the logging level to WARNING
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
     else:
@@ -77,75 +79,45 @@ def main():
 
     # Load voice details
     voices = {}
-    for model_args in args.model:
-        if len(model_args) > 1:
-            voice = model_args[0]
-            model_path = Path(model_args[1])
-        else:
-            voice = args.default_voice
-            model_path = Path(model_args[0])
+    for (
+        voice_name,
+        language,
+        tts_type,
+        tts_path,
+        vocoder_type,
+        vocoder_path,
+    ) in args.voice:
+        voices[voice_name] = VoiceInfo(
+            name=voice_name,
+            language=language,
+            tts_model_type=tts_type,
+            tts_model_path=Path(tts_path).absolute(),
+            vocoder_model_type=vocoder_type,
+            vocoder_model_path=Path(vocoder_path).absolute(),
+        )
 
-        voices[voice] = {
-            "model_path": model_path,
-            "config_path": (model_path.parent / "config.json"),
-        }
+    # Load TTS/vocoder settings
+    for voice_name, tts_key, tts_value in args.tts_setting:
+        voice = voices.get(voice_name)
+        if voice:
+            tts_settings = voice.tts_settings or {}
+            tts_settings[tts_key] = tts_value
+            voice.tts_settings = tts_settings
 
-    # Add TTS model configs
-    for config_args in args.config:
-        if len(config_args) > 1:
-            voice = config_args[0]
-            config_path = Path(config_args[1])
-        else:
-            voice = args.default_voice
-            config_path = Path(config_args[0])
-
-        voices[voice]["config_path"] = config_path
-
-    # Add vocoder models
-    for vocoder_args in args.vocoder_model:
-        if len(vocoder_args) > 1:
-            voice = vocoder_args[0]
-            vocoder_path = Path(vocoder_args[1])
-        else:
-            voice = args.default_voice
-            vocoder_path = Path(vocoder_args[0])
-
-        voices[voice]["vocoder_path"] = vocoder_path
-        voices[voice]["vocoder_config_path"] = vocoder_path.parent / "config.json"
-
-    # Add vocoder configs
-    for vocoder_config_args in args.vocoder_config:
-        if len(vocoder_config_args) > 1:
-            voice = vocoder_config_args[0]
-            vocoder_config_path = Path(vocoder_config_args[1])
-        else:
-            voice = args.default_voice
-            vocoder_config_path = Path(vocoder_config_args[0])
-
-        voices[voice]["vocoder_config_path"] = vocoder_config_path
+    for voice_name, vocoder_key, vocoder_value in args.vocoder_setting:
+        voice = voices.get(voice_name)
+        if voice:
+            vocoder_settings = voice.vocoder_settings or {}
+            vocoder_settings[vocoder_key] = vocoder_value
+            voice.vocoder_settings = vocoder_settings
 
     _LOGGER.debug(voices)
-
-    # Create synthesizer
-    synthesizers = {}
-    for voice, voice_args in voices.items():
-        _LOGGER.debug("Creating Larynx synthesizer (%s)...", voice)
-
-        try:
-            synthesizer = synthesize.Synthesizer(**voice_args)
-
-            synthesizer.load()
-            synthesizers[voice] = synthesizer
-
-            _LOGGER.info("Created synthesizer for %s", voice)
-        except Exception:
-            _LOGGER.exception("Failed to create synthesizer for %s", voice)
 
     # Listen for messages
     client = mqtt.Client()
     hermes = TtsHermesMqtt(
         client,
-        synthesizers=synthesizers,
+        voices=voices,
         default_voice=args.default_voice,
         cache_dir=args.cache_dir,
         play_command=args.play_command,
