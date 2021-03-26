@@ -1,10 +1,12 @@
 """Hermes MQTT service for Rhasspy TTS with Larynx."""
 import argparse
 import asyncio
+import json
 import logging
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
+from larynx.audio import AudioSettings
 
 import rhasspyhermes.cli as hermes_cli
 
@@ -87,6 +89,17 @@ def main():
         vocoder_type,
         vocoder_path,
     ) in args.voice:
+        config_path = Path(tts_path) / "config.json"
+        if config_path:
+            # Load audio settings from voice config file
+            _LOGGER.debug("Loading configuration from %s", config_path)
+            with open(config_path, "r") as config_file:
+                voice_config = json.load(config_file)
+                audio_settings = AudioSettings(**voice_config["audio"])
+        else:
+            # Default audio settings
+            audio_settings = AudioSettings()
+
         voices[voice_name] = VoiceInfo(
             name=voice_name,
             language=language,
@@ -94,6 +107,7 @@ def main():
             tts_model_path=Path(tts_path).absolute(),
             vocoder_model_type=vocoder_type,
             vocoder_model_path=Path(vocoder_path).absolute(),
+            audio_settings=audio_settings,
         )
 
     # Load TTS/vocoder settings

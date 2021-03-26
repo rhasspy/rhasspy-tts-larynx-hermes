@@ -13,14 +13,16 @@ from pathlib import Path
 from uuid import uuid4
 
 import gruut
-from larynx_runtime import (
+from larynx import (
+    AudioSettings,
     TextToSpeechModel,
     VocoderModel,
     load_tts_model,
     load_vocoder_model,
     text_to_speech,
 )
-from larynx_runtime.wavfile import write as wav_write
+from larynx.wavfile import write as wav_write
+
 from rhasspyhermes.audioserver import AudioPlayBytes, AudioPlayError, AudioPlayFinished
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
@@ -41,6 +43,7 @@ class VoiceInfo:
     tts_model_path: Path
     vocoder_model_type: str
     vocoder_model_path: Path
+    audio_settings: AudioSettings
     tts_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
     vocoder_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
     sample_rate: int = 22050
@@ -353,6 +356,7 @@ class TtsHermesMqtt(HermesClient):
                 vocoder_model=vocoder_model,
                 tts_settings=voice.tts_settings,
                 vocoder_settings=voice.vocoder_settings,
+                audio_settings=voice.audio_settings,
             )
         )
         assert results, "No TTS result"
