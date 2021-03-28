@@ -3,6 +3,7 @@ import asyncio
 import audioop
 import hashlib
 import io
+import json
 import logging
 import shlex
 import subprocess
@@ -43,7 +44,7 @@ class VoiceInfo:
     tts_model_path: Path
     vocoder_model_type: str
     vocoder_model_path: Path
-    audio_settings: AudioSettings
+    audio_settings: typing.Optional[AudioSettings] = None
     tts_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
     vocoder_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
     sample_rate: int = 22050
@@ -336,6 +337,20 @@ class TtsHermesMqtt(HermesClient):
             self.tts_models[tts_key] = tts_model
 
         assert tts_model is not None
+
+        if voice.audio_settings is None:
+            config_path = Path(voice.tts_model_path) / "config.json"
+            if config_path:
+                # Load audio settings from voice config file
+                _LOGGER.debug("Loading configuration from %s", config_path)
+                with open(config_path, "r") as config_file:
+                    voice_config = json.load(config_file)
+                    voice.audio_settings = AudioSettings(**voice_config["audio"])
+            else:
+                # Default audio settings
+                voice.audio_settings = AudioSettings()
+
+        assert voice.audio_settings is not None
 
         # Load vocoder model
         vocoder_key = str(voice.vocoder_model_path)
