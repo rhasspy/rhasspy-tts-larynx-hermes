@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-import gruut
+import numpy as np
 from larynx import (
     AudioSettings,
     TextToSpeechModel,
@@ -24,6 +24,7 @@ from larynx import (
 )
 from larynx.wavfile import write as wav_write
 
+import gruut
 from rhasspyhermes.audioserver import AudioPlayBytes, AudioPlayError, AudioPlayFinished
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
@@ -48,6 +49,18 @@ class VoiceInfo:
     tts_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
     vocoder_settings: typing.Optional[typing.Dict[str, typing.Any]] = None
     sample_rate: int = 22050
+
+    @property
+    def cache_id(self):
+        """Get a unique id for this voice that includes vocoder details"""
+        return (
+            "{self.name}"
+            + f"_{self.language}"
+            + f"_{self.tts_model_type}"
+            + f"_{self.tts_model_path.name}"
+            + f"_{self.vocoder_model_type}"
+            + f"_{self.vocoder_model_path.name}"
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -118,7 +131,7 @@ class TtsHermesMqtt(HermesClient):
             assert voice is not None, f"No voice named {voice_name}"
 
             # Check cache
-            sentence_hash = TtsHermesMqtt.get_sentence_hash(voice_name, say.text)
+            sentence_hash = TtsHermesMqtt.get_sentence_hash(voice.cache_id, say.text)
             wav_bytes = None
             from_cache = False
             cached_wav_path = None
@@ -376,12 +389,11 @@ class TtsHermesMqtt(HermesClient):
         )
         assert results, "No TTS result"
 
-        # Assume all sentences are combined into a single audio segment
-        _, audio = results[0]
+        audios = [audio for _, audio in results]
 
         # Convert to WAV audio
         with io.BytesIO() as wav_io:
-            wav_write(wav_io, voice.sample_rate, audio)
+            wav_write(wav_io, voice.sample_rate, np.concatenate(audios))
             wav_bytes = wav_io.getvalue()
 
         return wav_bytes
