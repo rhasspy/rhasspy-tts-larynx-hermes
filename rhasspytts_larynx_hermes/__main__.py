@@ -62,6 +62,12 @@ def main():
         help="Pass key/value setting to vocoder (e.g., denoiser_strength)",
     )
 
+    parser.add_argument(
+        "--gruut-dir",
+        action="append",
+        help="Directories to search for gruut language data",
+    )
+
     hermes_cli.add_hermes_args(parser)
     args = parser.parse_args()
 
@@ -74,8 +80,12 @@ def main():
 
     _LOGGER.debug(args)
 
+    # Convert to paths
     if args.cache_dir:
         args.cache_dir = Path(args.cache_dir)
+
+    if args.gruut_dir:
+        args.gruut_dir = [Path(p) for p in args.gruut_dir]
 
     # Load voice details
     voices = {}
@@ -122,6 +132,7 @@ def main():
         cache_dir=args.cache_dir,
         play_command=args.play_command,
         volume=args.volume,
+        gruut_dirs=args.gruut_dir,
         site_ids=args.site_id,
     )
 

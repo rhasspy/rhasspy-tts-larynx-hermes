@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import gruut
 import numpy as np
 from larynx import (
     AudioSettings,
@@ -24,7 +25,6 @@ from larynx import (
 )
 from larynx.wavfile import write as wav_write
 
-import gruut
 from rhasspyhermes.audioserver import AudioPlayBytes, AudioPlayError, AudioPlayFinished
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
@@ -79,6 +79,7 @@ class TtsHermesMqtt(HermesClient):
         volume: typing.Optional[float] = None,
         denoiser_strength: float = 0.0,
         site_ids: typing.Optional[typing.List[str]] = None,
+        gruut_dirs: typing.Optional[typing.List[typing.Union[str, Path]]] = None,
     ):
         super().__init__("rhasspytts_larynx_hermes", client, site_ids=site_ids)
 
@@ -90,6 +91,7 @@ class TtsHermesMqtt(HermesClient):
         self.play_command = play_command
         self.volume = volume
         self.denoiser_strength = denoiser_strength
+        self.gruut_dirs = gruut.Language.get_data_dirs(gruut_dirs)
 
         # locale -> gruut Language
         self.gruut_langs: typing.Dict[str, gruut.Language] = {}
@@ -104,10 +106,6 @@ class TtsHermesMqtt(HermesClient):
 
         # Seconds added to playFinished timeout
         self.finished_timeout_extra: float = 0.25
-
-        if self.cache_dir:
-            # Create cache directory in profile if it doesn't exist
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------------------
 
@@ -137,6 +135,9 @@ class TtsHermesMqtt(HermesClient):
             cached_wav_path = None
 
             if self.cache_dir:
+                # Create cache directory in profile if it doesn't exist
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+
                 # Load from cache
                 cached_wav_path = self.cache_dir / f"{sentence_hash.hexdigest()}.wav"
 
@@ -336,8 +337,11 @@ class TtsHermesMqtt(HermesClient):
         # Load language
         gruut_lang = self.gruut_langs.get(voice.language)
         if gruut_lang is None:
-            gruut_lang = gruut.Language.load(voice.language)
-            assert gruut_lang is not None
+            gruut_lang = gruut.Language.load(voice.language, data_dirs=self.gruut_dirs)
+            assert (
+                gruut_lang is not None
+            ), f"Gruut language {voice.language} not found in {self.gruut_dirs}"
+
             self.gruut_langs[voice.language] = gruut_lang
 
         # Load TTS model
