@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import logging
+import platform
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
@@ -68,6 +69,13 @@ def main():
         help="Directories to search for gruut language data",
     )
 
+    parser.add_argument(
+        "--optimizations",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Enable/disable Onnx optimizations (auto=disable on armv7l)",
+    )
+
     hermes_cli.add_hermes_args(parser)
     args = parser.parse_args()
 
@@ -86,6 +94,14 @@ def main():
 
     if args.gruut_dir:
         args.gruut_dir = [Path(p) for p in args.gruut_dir]
+
+    setattr(args, "no_optimizations", False)
+    if args.optimizations == "off":
+        args.no_optimizations = True
+    elif args.optimizations == "auto":
+        if platform.machine() == "armv7l":
+            # Enabling optimizations on 32-bit ARM crashes
+            args.no_optimizations = True
 
     # Load voice details
     voices = {}
@@ -133,6 +149,7 @@ def main():
         play_command=args.play_command,
         volume=args.volume,
         gruut_dirs=args.gruut_dir,
+        no_optimizations=args.no_optimizations,
         site_ids=args.site_id,
     )
 

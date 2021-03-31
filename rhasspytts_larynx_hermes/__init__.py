@@ -78,6 +78,7 @@ class TtsHermesMqtt(HermesClient):
         play_command: typing.Optional[str] = None,
         volume: typing.Optional[float] = None,
         denoiser_strength: float = 0.0,
+        no_optimizations: bool = False,
         site_ids: typing.Optional[typing.List[str]] = None,
         gruut_dirs: typing.Optional[typing.List[typing.Union[str, Path]]] = None,
     ):
@@ -92,6 +93,7 @@ class TtsHermesMqtt(HermesClient):
         self.volume = volume
         self.denoiser_strength = denoiser_strength
         self.gruut_dirs = gruut.Language.get_data_dirs(gruut_dirs)
+        self.no_optimizations = no_optimizations
 
         # locale -> gruut Language
         self.gruut_langs: typing.Dict[str, gruut.Language] = {}
@@ -349,7 +351,9 @@ class TtsHermesMqtt(HermesClient):
         tts_model = self.tts_models.get(tts_key)
         if tts_model is None:
             tts_model = load_tts_model(
-                model_type=voice.tts_model_type, model_path=voice.tts_model_path
+                model_type=voice.tts_model_type,
+                model_path=voice.tts_model_path,
+                no_optimizations=self.no_optimizations,
             )
             self.tts_models[tts_key] = tts_model
 
@@ -374,7 +378,9 @@ class TtsHermesMqtt(HermesClient):
         vocoder_model = self.vocoder_models.get(vocoder_key)
         if vocoder_model is None:
             vocoder_model = load_vocoder_model(
-                model_type=voice.vocoder_model_type, model_path=voice.vocoder_model_path
+                model_type=voice.vocoder_model_type,
+                model_path=voice.vocoder_model_path,
+                no_optimizations=self.no_optimizations,
             )
             self.vocoder_models[vocoder_key] = vocoder_model
 
